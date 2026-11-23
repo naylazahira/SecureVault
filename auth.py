@@ -1,21 +1,68 @@
+
+import sqlite3
 import bcrypt
 from pathlib import Path
 
-USER_FILE = Path("data/user.bin")
+DB_PATH = Path("data/users.db")
+
+
+def init_auth_db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash BLOB NOT NULL
+            )
+        """)
+
 
 def register(username, password):
-    USER_FILE.parent.mkdir(exist_ok=True)
-    if USER_FILE.exists():
+    init_auth_db()
+
+    username = username.strip()
+
+    if not username or not password:
         return False
-    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
-    USER_FILE.write_bytes(username.encode()+b"\n"+hashed)
-    return True
+
+    hashed = bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt()
+    )
+
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                (username, hashed)
+            )
+
+        return True
+
+    except sqlite3.IntegrityError:
+        return False
+
 
 def login(username, password):
-    if not USER_FILE.exists():
+    init_auth_db()
+
+    username = username.strip()
+
+    if not username or not password:
         return False
-    try:
-        saved_user, saved_hash = USER_FILE.read_bytes().split(b"\n",1)
-        return saved_user.decode()==username and bcrypt.checkpw(password.encode(),saved_hash)
-    except Exception:
+
+    with sqlite3.connect(DB_PATH) as conn:
+        user = conn.execute(
+            "SELECT password_hash FROM users WHERE username = ?",
+            (username,)
+        ).fetchone()
+
+    if user is None:
         return False
+
+    return bcrypt.checkpw(
+        password.encode("utf-8"),
+        user[0]
+    )

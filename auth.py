@@ -1,68 +1,105 @@
 
-import sqlite3
 import bcrypt
+import json
 from pathlib import Path
 
-DB_PATH = Path("data/users.db")
+USER_FILE = Path("data/user.bin")
 
 
-def init_auth_db():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+def _load_users():
+    """Membaca akun baru dan memigrasikan format akun lama."""
+    if not USER_FILE.exists():
+        return {}
 
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash BLOB NOT NULL
-            )
-        """)
+    raw = USER_FILE.read_bytes()
+
+    # Format baru: JSON
+    try:
+        data = json.loads(raw.decode("utf-8"))
+        return data.get("users", {})
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        pass
+
+    # Format lama: username + bcrypt hash
+    try:
+        username, password_hash = raw.split(b"\n", 1)
+        username = username.decode("utf-8").strip()
+
+        if username and password_hash:
+            return {
+                username.lower(): {
+                    "username": username,
+                    "password_hash": password_hash.decode("ascii")
+                }
+            }
+    except Exception:
+        pass
+
+    return {}
+
+
+def _save_users(users):
+    USER_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    data = {"users": users}
+    temp_file = USER_FILE.with_suffix(".tmp")
+
+    temp_file.write_text(
+        json.dumps(data, indent=4),
+        encoding="utf-8"
+    )
+    temp_file.replace(USER_FILE)
+
+
+def user_exists(username):
+    if not username or not username.strip():
+        return False
+
+    users = _load_users()
+    return username.strip().lower() in users
 
 
 def register(username, password):
-    init_auth_db()
-
     username = username.strip()
 
     if not username or not password:
         return False
 
-    hashed = bcrypt.hashpw(
+    users = _load_users()
+    key = username.lower()
+
+    if key in users:
+        return False
+
+    password_hash = bcrypt.hashpw(
         password.encode("utf-8"),
         bcrypt.gensalt()
     )
 
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute(
-                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-                (username, hashed)
-            )
+    users[key] = {
+        "username": username,
+        "password_hash": password_hash.decode("ascii")
+    }
 
-        return True
-
-    except sqlite3.IntegrityError:
-        return False
+    _save_users(users)
+    return True
 
 
 def login(username, password):
-    init_auth_db()
-
-    username = username.strip()
-
     if not username or not password:
         return False
 
-    with sqlite3.connect(DB_PATH) as conn:
-        user = conn.execute(
-            "SELECT password_hash FROM users WHERE username = ?",
-            (username,)
-        ).fetchone()
+    users = _load_users()
+    account = users.get(username.strip().lower())
 
-    if user is None:
+    if not account:
         return False
 
-    return bcrypt.checkpw(
-        password.encode("utf-8"),
-        user[0]
-    )
+    try:
+        password_hash = account["password_hash"].encode("ascii")
+        return bcrypt.checkpw(
+            password.encode("utf-8"),
+            password_hash
+        )
+    except Exception:
+        return False

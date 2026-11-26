@@ -1,5 +1,6 @@
 import streamlit as st
-from auth import register, login, init_auth_db
+from auth import register, login, init_auth_db, user_exists
+from face_auth import enroll_face, verify_face, remove_face_model
 from dongle import check_dongle, DONGLE_PATH
 from crypto_text import encrypt_text, decrypt_text
 from crypto_file import encrypt_file, decrypt_file
@@ -11,25 +12,26 @@ from blockchain import Chain
 st.set_page_config(page_title="SecureVault", layout="wide")
 
 # ================= TEMA DAN CSS =================
-# Palet: #231F2E (ink), #66ACDB (blue), #71F05F (green), #FFFFFF (white)
+# Palet: Ink Navy #0C2340, Deep Ocean #1A5276, Sky Pearl #A8D4E6, Sea Foam #B8E8D0
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
     color-scheme: light;
-    --ink:#231F2E;
-    --blue:#66ACDB;
-    --green:#71F05F;
+    --ink:#0C2340;
+    --blue:#A8D4E6;
+    --ocean:#1A5276;
+    --green:#B8E8D0;
     --white:#FFFFFF;
-    --bg:#F6F9FC;
-    --line:#E1E8F0;
-    --line-strong:#C9D5E2;
-    --text:#3B3750;
-    --muted:#6A6780;
-    --blue-soft:#EAF3FA;
-    --green-soft:#EAFBE7;
-    --grad:linear-gradient(100deg,#71F05F 0%,#66ACDB 100%);
+    --bg:#F2FAF7;
+    --line:#D3E9E0;
+    --line-strong:#B3D2DE;
+    --text:#1F3D5C;
+    --muted:#4D6C86;
+    --blue-soft:#E7F3F9;
+    --green-soft:#E9F7F0;
+    --grad:linear-gradient(100deg,#B8E8D0 0%,#A8D4E6 100%);
     --display:'Inter',sans-serif;
 }
 
@@ -122,10 +124,10 @@ hr {
     align-items:center;
     gap:8px;
     background:var(--green-soft);
-    border:1px solid #A9EDA0;
+    border:1px solid #93D4B6;
     border-radius:10px;
     padding:9px 12px;
-    color:#1E5A17;
+    color:#0F4F3A;
     font-size:13px;
     font-weight:600;
     margin:14px 0;
@@ -135,7 +137,7 @@ hr {
     width:8px;
     height:8px;
     border-radius:50%;
-    background:#3FC72E;
+    background:#2E9E73;
 }
 
 /* RADIO MENU */
@@ -153,7 +155,7 @@ hr {
 }
 [data-testid="stRadio"] label:has(input:checked) {
     background:var(--blue-soft);
-    border-left:3px solid var(--blue);
+    border-left:3px solid var(--ocean);
 }
 [data-testid="stRadio"] label:has(input:checked) p {
     font-weight:600;
@@ -174,12 +176,12 @@ hr {
 }
 .stTextInput input::placeholder,
 .stTextArea textarea::placeholder {
-    color:#8E8CA3!important;
+    color:#7794AA!important;
     opacity:1!important;
 }
 .stTextInput input:focus,.stTextArea textarea:focus {
-    border-color:var(--blue)!important;
-    box-shadow:0 0 0 3px #66ACDB33!important;
+    border-color:var(--ocean)!important;
+    box-shadow:0 0 0 3px #1A527633!important;
 }
 [data-testid="stTextInput"] button {
     background:transparent!important;
@@ -205,12 +207,12 @@ hr {
 }
 .stButton>button:hover {
     filter:brightness(1.05);
-    box-shadow:0 6px 18px #66ACDB55;
+    box-shadow:0 6px 18px #1A527644;
 }
 .stDownloadButton>button {
     background:var(--white)!important;
     color:var(--ink)!important;
-    border:1.5px solid var(--blue)!important;
+    border:1.5px solid var(--ocean)!important;
     border-radius:10px!important;
     font-weight:600!important;
     min-height:44px;
@@ -274,7 +276,7 @@ hr {
     font-weight:700;
     letter-spacing:-0.02em;
     line-height:1.2;
-    background:linear-gradient(90deg,#71F05F 0%,#66ACDB 45%,#231F2E 100%);
+    background:linear-gradient(90deg,#1A5276 0%,#0C2340 100%);
     -webkit-background-clip:text;
     background-clip:text;
     color:transparent;
@@ -290,13 +292,13 @@ hr {
 .sv-hero {
     background:
         radial-gradient(circle at 100% 0%,#FFFFFFD9 0%,#FFFFFF00 28%),
-        linear-gradient(250deg,#71F05F 0%,#66ACDB 24%,#3E5A86 50%,#231F2E 78%);
+        linear-gradient(250deg,#B8E8D0 0%,#A8D4E6 22%,#1A5276 52%,#0C2340 80%);
     border-radius:20px;
     padding:48px 44px;
     margin-bottom:32px;
 }
 .sv-hero-title {
-    color:var(--white);
+    color:var(--green);
     font-family:var(--display);
     font-size:36px;
     font-weight:700;
@@ -306,7 +308,7 @@ hr {
     max-width:620px;
 }
 .sv-hero-desc {
-    color:#FFFFFFD9;
+    color:#A8D4E6;
     font-size:15px;
     line-height:1.75;
     max-width:520px;
@@ -329,7 +331,7 @@ hr {
     top:0;
     bottom:0;
     width:4px;
-    background:linear-gradient(180deg,#71F05F,#66ACDB);
+    background:linear-gradient(180deg,#B8E8D0,#A8D4E6);
 }
 .sv-card-title {
     color:var(--ink);
@@ -368,7 +370,7 @@ hr {
 [data-testid="stAlert"],
 [data-testid="stAlertContainer"] {
     background:var(--blue-soft)!important;
-    border:1px solid #BBD9EE!important;
+    border:1px solid #A8D4E6!important;
     border-radius:12px!important;
 }
 [data-testid="stAlert"] p,
@@ -382,12 +384,12 @@ hr {
 [data-testid="stAlert"][kind="success"],
 [data-testid="stAlertContainer"][kind="success"] {
     background:var(--green-soft)!important;
-    border-color:#A9EDA0!important;
+    border-color:#93D4B6!important;
 }
 [data-testid="stAlert"][kind="info"],
 [data-testid="stAlertContainer"][kind="info"] {
     background:var(--blue-soft)!important;
-    border-color:#BBD9EE!important;
+    border-color:#A8D4E6!important;
 }
 [data-testid="stAlert"][kind="warning"],
 [data-testid="stAlertContainer"][kind="warning"] {
@@ -402,8 +404,8 @@ hr {
 
 /* FILE UPLOADER */
 [data-testid="stFileUploader"] {
-    background:#F3F9FD!important;
-    border:1.5px dashed var(--blue)!important;
+    background:#EEF8FA!important;
+    border:1.5px dashed var(--ocean)!important;
     border-radius:14px!important;
     padding:12px!important;
 }
@@ -418,7 +420,7 @@ hr {
 [data-testid="stFileUploader"] button {
     background:var(--white)!important;
     color:var(--ink)!important;
-    border:1.5px solid var(--blue)!important;
+    border:1.5px solid var(--ocean)!important;
     border-radius:9px!important;
 }
 [data-testid="stFileUploader"] small {
@@ -429,7 +431,7 @@ hr {
 [data-testid="stMetric"] {
     background:var(--white);
     border:1px solid var(--line);
-    border-top:3px solid var(--blue);
+    border-top:3px solid var(--ocean);
     border-radius:12px;
     padding:16px 18px;
 }
@@ -459,7 +461,7 @@ hr {
 
 /* CODE DAN JSON */
 .stCode,pre {
-    background:#F1F5F9!important;
+    background:#EDF6F8!important;
     color:var(--ink)!important;
     border:1px solid var(--line)!important;
     border-radius:10px!important;
@@ -531,15 +533,6 @@ if "auth_mode" not in st.session_state:
 if "flash" not in st.session_state:
     st.session_state.flash = None
 
-def do_register():
-    ru = st.session_state.get("reg_user", "")
-    rp = st.session_state.get("reg_pass", "")
-    if ru and rp and register(ru, rp):
-        st.session_state.flash = ("success", "Akun berhasil dibuat. Silakan Login.")
-        st.session_state.auth_mode = "Login"
-    else:
-        st.session_state.flash = ("error", "Akun sudah terdaftar atau data belum lengkap.")
-
 def back_to_login():
     st.session_state.login_pending = False
     st.session_state.bio_verified = False
@@ -564,14 +557,26 @@ if not st.session_state.authenticated:
                 st.error("USB Dongle tidak ditemukan. Pasang flashdisk yang berisi securevault.key.")
 
         with bio_col:
-            feature_card("Fingerprint Verification", "Lakukan verifikasi sidik jari untuk melanjutkan.")
+            feature_card("Face Recognition", "Verifikasi identitas menggunakan kamera dan model wajah yang telah didaftarkan.")
             if not st.session_state.bio_verified:
-                st.info("Verifikasi fingerprint saat ini masih berupa simulasi.")
-                if st.button("Simulasikan Verifikasi Fingerprint", use_container_width=True):
-                    st.session_state.bio_verified = True
-                    st.rerun()
+                st.info("Ambil foto wajah untuk memverifikasi identitas akun.")
+                face_photo = st.camera_input("Verifikasi Wajah", key="login_face_camera")
+                if st.button("Verifikasi Wajah", use_container_width=True):
+                    if face_photo is None:
+                        st.warning("Ambil foto wajah terlebih dahulu.")
+                    else:
+                        ok, message = verify_face(
+                            st.session_state.get("login_user", ""),
+                            face_photo.getvalue()
+                        )
+                        if ok:
+                            st.session_state.bio_verified = True
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
             else:
-                st.success("Verifikasi fingerprint berhasil.")
+                st.success("Verifikasi wajah berhasil.")
 
         if check_dongle() and st.session_state.bio_verified:
             st.success("Seluruh tahapan verifikasi berhasil.")
@@ -597,7 +602,7 @@ if not st.session_state.authenticated:
         st.caption("Berbagai mekanisme keamanan dalam satu aplikasi.")
         feature_card("Advanced Encryption", "Lindungi pesan dan file menggunakan algoritma kriptografi.")
         feature_card("USB Dongle Verification", "Verifikasi akses tambahan menggunakan file kunci USB.")
-        feature_card("Biometric Verification", "Simulasi verifikasi sidik jari sebagai bagian dari proses autentikasi.")
+        feature_card("Biometric Verification", "Verifikasi wajah menggunakan kamera sebagai lapisan autentikasi tambahan.")
         st.markdown("""
         <div class="sv-footer">
             SecureVault, sistem kriptografi berlapis<br>
@@ -609,8 +614,17 @@ if not st.session_state.authenticated:
         st.markdown('<div class="sv-login-title">Akses SecureVault</div>', unsafe_allow_html=True)
         st.markdown('<div class="sv-login-desc">Masuk ke akun atau buat akun baru untuk melanjutkan.</div>', unsafe_allow_html=True)
 
-        st.radio("Mode", ["Login", "Register"], key="auth_mode",
-                 horizontal=True, label_visibility="collapsed")
+        # Ubah mode sebelum widget radio dibuat agar tidak memicu StreamlitAPIException.
+        if st.session_state.pop("switch_to_login", False):
+            st.session_state.auth_mode = "Login"
+
+        st.radio(
+            "Mode",
+            ["Login", "Register"],
+            key="auth_mode",
+            horizontal=True,
+            label_visibility="collapsed"
+        )
 
         if st.session_state.flash:
             kind, msg_text = st.session_state.flash
@@ -636,9 +650,36 @@ if not st.session_state.authenticated:
         else:
             st.markdown("### Buat Akun Baru")
             st.caption("Daftarkan akun untuk menggunakan SecureVault.")
-            st.text_input("Username Baru", key="reg_user", placeholder="Buat username")
-            st.text_input("Password Baru", type="password", key="reg_pass", placeholder="Buat password")
-            st.button("Buat Akun", use_container_width=True, on_click=do_register)
+            ru = st.text_input("Username Baru", key="reg_user", placeholder="Buat username")
+            rp = st.text_input("Password Baru", type="password", key="reg_pass", placeholder="Buat password")
+            st.markdown("#### Pendaftaran Wajah")
+            st.caption("Ambil 5 foto wajah dengan posisi atau ekspresi sedikit berbeda. Pastikan wajah terlihat jelas dan pencahayaan cukup.")
+
+            face_photos = []
+            photo_cols = st.columns(2)
+            for i in range(5):
+                with photo_cols[i % 2]:
+                    photo = st.camera_input(f"Foto wajah {i + 1}", key=f"reg_face_camera_{i + 1}")
+                face_photos.append(photo.getvalue() if photo is not None else None)
+
+            if st.button("Buat Akun", use_container_width=True):
+                if not ru.strip() or not rp:
+                    st.error("Username dan password wajib diisi.")
+                elif user_exists(ru):
+                    st.error("Username sudah terdaftar. Gunakan username lain.")
+                elif any(photo is None for photo in face_photos):
+                    st.warning("Ambil seluruh 5 foto wajah sebelum membuat akun.")
+                else:
+                    face_ok, face_message = enroll_face(ru, face_photos)
+                    if not face_ok:
+                        st.error(face_message)
+                    elif register(ru, rp):
+                        st.session_state.flash = ("success", "Akun dan data wajah berhasil dibuat. Silakan Login.")
+                        st.session_state.switch_to_login = True
+                        st.rerun()
+                    else:
+                        remove_face_model(ru)
+                        st.error("Akun gagal dibuat. Silakan periksa username dan coba kembali.")
 
     st.stop()
 

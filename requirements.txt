@@ -3,3 +3,4 @@ cryptography
 bcrypt
 stegano
 pillow
+opencv-contrib-python-headless
